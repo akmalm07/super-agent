@@ -8,6 +8,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+# Never send local environment files or credentials into a Docker build.
 .env
 .env.*
 vendor/

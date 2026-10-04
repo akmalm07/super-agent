@@ -3,21 +3,4 @@ services:
     build:
       context: .
     image: super-agent:local
-    env_file:
-      - path: .env
-        required: false
-
-  aider:
-    build:
-      context: ./vendor/aider-better
-      dockerfile: docker/Dockerfile
-      target: aider
-    working_dir: /workspace
-    volumes:
-      - .:/workspace
-    env_file:
-      - path: .env
-        required: false
-    stdin_open: true
-    tty: true
     entrypoint: ["/venv/bin/aider"]

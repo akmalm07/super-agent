@@ -1,0 +1,17 @@
+$base_prompt
+
+OUTPUT CONTRACT — this is mandatory:
+- Return exactly one valid JSON object and nothing else.
+- Do not use Markdown fences, prose before or after JSON, comments, or tool-call text.
+- Match the supplied JSON Schema exactly: include every required field, use only
+  allowed values, and do not add properties when the schema forbids them.
+- The schema is authoritative over any conflicting natural-language instruction.
+- A decision of "no" is valid when justified, but it must still satisfy the complete
+  response schema and payload shape.
+
+JSON Schema:
+$json_schema
+
+Previous validation error; empty on the first attempt:
+$previous_error
+If an error is present, correct that exact error before responding.

@@ -1,0 +1,73 @@
+{
+  "request": {
+    "goal": "Add a searchable command history screen with keyboard navigation and persisted filters.",
+    "source_repository": "https://github.com/YOUR-ACCOUNT/YOUR-REPOSITORY.git",
+    "architecture_mermaid": "flowchart LR\n  User[User] --> UI[History screen]\n  UI --> API[Application API]\n  API --> Store[(History store)]",
+    "acceptance_criteria": [
+      "A user can search history entries by text.",
+      "Keyboard navigation works for search results.",
+      "Selected filters persist after an application restart.",
+      "Automated tests cover empty, invalid, and boundary inputs."
+    ],
+    "constraints": [
+      "Keep the existing public API backwards compatible.",
+      "Do not add telemetry or external network dependencies."
+    ],
+    "difficulty": "medium",
+    "language": "typescript"
+  },
+  "planner": {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:14b",
+    "execution_mode": "text",
+    "structured_output_retries": 2,
+    "timeout_seconds": 900
+  },
+  "coder": {
+    "provider": "codex",
+    "model": "gpt-6.1-sol",
+    "execution_mode": "workspace",
+    "structured_output_retries": 2,
+    "command": ["codex", "exec", "--approve-for-me", "--sandbox", "workspace-write", "--skip-git-repo-check", "--model", "{model}", "--output-schema", "{output_schema}", "{prompt}"],
+    "timeout_seconds": 1800
+  },
+  "tester": {
+    "provider": "codex",
+    "model": "gpt-6.1-sol",
+    "execution_mode": "workspace",
+    "structured_output_retries": 2,
+    "command": ["codex", "exec", "--approve-for-me", "--sandbox", "workspace-write", "--skip-git-repo-check", "--model", "{model}", "--output-schema", "{output_schema}", "{prompt}"],
+    "timeout_seconds": 1200
+  },
+  "testing": {
+    "commands": [["python", "-m", "pytest", "-q"]],
+    "timeout_seconds": 300
+  },
+  "workspace": {
+    "runs_directory": "runs",
+    "base_branch": "main",
+    "database_path": "runs/super-agent.sqlite3"
+  },
+  "sandbox": {
+    "mode": "process"
+  },
+  "commit": {
+    "enabled": true,
+    "message_prefix": "Super-agent: "
+  },
+  "deployment": {
+    "enabled": false,
+    "commands": [],
+    "health_check_commands": [],
+    "timeout_seconds": 300
+  },
+  "preview": {
+    "enabled": false,
+    "command": [],
+    "health_check_commands": [],
+    "health_check_url": "",
+    "port_start": 4300,
+    "port_end": 4399,
+    "startup_timeout_seconds": 20
+  }
+}
