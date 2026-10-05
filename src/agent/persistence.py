@@ -14,7 +14,7 @@ from uuid import uuid4
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-from .task import PipelineRequest
+from .task import Difficulty, PipelineRequest, ProjectLanguage
 
 
 def utc_now() -> datetime:
@@ -34,6 +34,8 @@ class ProjectRecord(Base):
     )
     name: Mapped[str] = mapped_column(String(256))
     language: Mapped[str] = mapped_column(String(32), default="python")
+    difficulty: Mapped[str] = mapped_column(String(16), default="medium")
+    task_id: Mapped[str] = mapped_column(String(256), default="")
     latest_goal: Mapped[str] = mapped_column(Text)
     architecture_mermaid: Mapped[str] = mapped_column(Text, default="")
     acceptance_criteria_json: Mapped[str] = mapped_column(Text, default="[]")
@@ -204,6 +206,8 @@ class SQLiteStore:
         additions = {
             "projects": {
                 "language": "VARCHAR(32) NOT NULL DEFAULT 'python'",
+                "difficulty": "VARCHAR(16) NOT NULL DEFAULT 'medium'",
+                "task_id": "VARCHAR(256) NOT NULL DEFAULT ''",
                 "architecture_mermaid": "TEXT NOT NULL DEFAULT ''",
                 "acceptance_criteria_json": "TEXT NOT NULL DEFAULT '[]'",
                 "constraints_json": "TEXT NOT NULL DEFAULT '[]'",
@@ -243,6 +247,8 @@ class SQLiteStore:
     def _apply_request(project: ProjectRecord, request: PipelineRequest) -> None:
         project.name = SQLiteStore._project_name(request)
         project.language = request.language.value
+        project.difficulty = request.difficulty.value
+        project.task_id = request.task_id
         project.latest_goal = request.goal
         project.architecture_mermaid = request.architecture_mermaid
         project.acceptance_criteria_json = json.dumps(request.acceptance_criteria)
@@ -262,6 +268,8 @@ class SQLiteStore:
                     source_repository=request.source_repository,
                     name=self._project_name(request),
                     language=request.language.value,
+                    difficulty=request.difficulty.value,
+                    task_id=request.task_id,
                     latest_goal=request.goal,
                     architecture_mermaid=request.architecture_mermaid,
                     acceptance_criteria_json=json.dumps(request.acceptance_criteria),
@@ -278,6 +286,67 @@ class SQLiteStore:
     def get_project(self, project_id: str) -> Optional[ProjectRecord]:
         with self.session_factory() as session:
             return session.get(ProjectRecord, project_id)
+
+    def resolve_project(self, reference: str) -> ProjectRecord:
+        with self.session_factory() as session:
+            matches = (
+                session.query(ProjectRecord)
+                .filter(
+                    (ProjectRecord.id == reference)
+                    | (ProjectRecord.id.like("{}%".format(reference)))
+                    | (ProjectRecord.name == reference)
+                )
+                .all()
+            )
+            if len(matches) != 1:
+                raise ValueError(
+                    "Project reference must match exactly one project ID, ID prefix, or name."
+                )
+            return matches[0]
+
+    def get_project_request(self, project_id: str) -> PipelineRequest:
+        project = self.get_project(project_id)
+        if project is None:
+            raise ValueError("Unknown project: {}".format(project_id))
+        return PipelineRequest(
+            goal=project.latest_goal,
+            source_repository=project.source_repository,
+            architecture_mermaid=project.architecture_mermaid,
+            acceptance_criteria=json.loads(project.acceptance_criteria_json),
+            constraints=json.loads(project.constraints_json),
+            difficulty=Difficulty(project.difficulty),
+            task_id=project.task_id,
+            language=ProjectLanguage(project.language),
+        )
+
+    def set_execution_profile(self, project_id: str, profile: Dict[str, Any]) -> None:
+        with self.session_factory.begin() as session:
+            project = session.get(ProjectRecord, project_id)
+            if project is None:
+                raise ValueError("Unknown project: {}".format(project_id))
+            project.default_config_json = json.dumps(profile, indent=2, sort_keys=True)
+            project.updated_at = utc_now()
+
+    def get_execution_profile(self, project_id: str) -> Dict[str, Any]:
+        project = self.get_project(project_id)
+        if project is None:
+            raise ValueError("Unknown project: {}".format(project_id))
+        try:
+            profile = json.loads(project.default_config_json)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Stored execution profile is invalid JSON.") from exc
+        if not isinstance(profile, dict) or not profile:
+            raise ValueError(
+                "Project has no execution profile. Import or configure one."
+            )
+        return profile
+
+    def has_execution_profile(self, project_id: str) -> bool:
+        try:
+            self.get_execution_profile(project_id)
+            return True
+        except ValueError:
+            return False
 
     def list_projects(self) -> List[ProjectRecord]:
         with self.session_factory() as session:

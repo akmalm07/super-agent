@@ -37,19 +37,25 @@ language (`Go`, `C`, `C++`, `Rust`, `TypeScript`, `Python`, or `Java`), enter a
 goal, GitHub clone URL, Mermaid design, and acceptance criteria. It also lists
 projects, revision chats, local previews, leased ports, and recent revisions.
 
-To run a saved configuration without opening the dashboard:
+JSON is now only an import/export format. Import it once, then run the persisted
+project by its full ID, unique ID prefix, or exact name:
 
 ```powershell
-super-agent validate .\my-pipeline.json
-super-agent run .\my-pipeline.json
-super-agent run .\my-pipeline.json --preview
-super-agent run .\my-pipeline.json --deploy
-super-agent run .\my-pipeline.json --chat-id YOUR-CHAT-ID --preview
+super-agent validate .\example-project.profile.json
+super-agent import .\example-project.profile.json
+super-agent run PROJECT-ID
+super-agent run PROJECT-ID --preview
+super-agent run PROJECT-ID --deploy
+super-agent run PROJECT-ID --chat-id YOUR-CHAT-ID --preview
+super-agent export PROJECT-ID
 ```
 
-`example.pipeline.json` is a starting configuration. Replace its repository,
-model commands, Mermaid diagram, criteria, testing commands, and any preview
-command before using it.
+The import command prints the created project ID. The dashboard lists IDs and lets
+you run revisions directly from SQLite. Exported backups use
+`project-name.project-id.profile.json`; the supplied
+[`example-project.profile.json`](example-project.profile.json) is a starting import
+template. Replace its repository, model commands, Mermaid diagram, criteria,
+testing commands, and preview command before importing it.
 
 ## Delivery boundaries
 
@@ -73,7 +79,7 @@ command before using it.
 The default database is `runs/super-agent.sqlite3` and is intentionally ignored
 by Git. It stores:
 
-- Project specifications and selected language;
+- Project specifications, selected language, and execution profile;
 - run/revision state and local commit SHA;
 - model prompts, JSON schemas, and structured outputs;
 - focused revision chats and their messages;
@@ -84,6 +90,12 @@ by Git. It stores:
 to tester. SQLite persists history across runs, but only an explicitly selected
 revision chat is injected into a new model run. This keeps unrelated old work out
 of the model context.
+
+After a JSON profile has been imported, SQLite is the source of truth for the
+project specification and model/test/deployment settings. `super-agent run` does
+not read a JSON configuration file. JSON remains useful for bootstrapping a new
+project, moving a profile between local databases, reviewing a profile in source
+control, or making a backup.
 
 Every dashboard suggestion starts a separate revision chat. You can add review
 messages to that chat and apply it with `--chat-id`. After the seventeenth
@@ -111,7 +123,7 @@ For example, a Python project can use:
 }
 ```
 
-Run it with `super-agent run .\my-pipeline.json --preview`. The result includes
+Run it with `super-agent run PROJECT-ID --preview`. The result includes
 the local preview URL and enters `review_waiting`. Review it, create a focused
 suggestion in the dashboard, then run that chat as the next revision. Stop the
 preview from dashboard action 6; that terminates the tracked process and releases

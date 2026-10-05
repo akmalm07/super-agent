@@ -6,10 +6,11 @@ from pathlib import Path
 from typing import List, Optional
 
 from .agent import PlannerAgent
-from .config import ConfigError, load_config
+from .config import ConfigError
 from .deployment import LocalPreviewDeployer
 from .orchestrator import PipelineOrchestrator
 from .persistence import ProjectRecord, SQLiteStore
+from .profiles import config_for_project, export_profile, import_profile
 from .task import Difficulty, PipelineRequest, ProjectLanguage
 
 LANGUAGES = [
@@ -49,8 +50,12 @@ class TerminalDashboard:
                     self._run_revision()
                 elif choice == "6":
                     self._stop_preview()
+                elif choice == "7":
+                    self._import_profile()
+                elif choice == "8":
+                    self._export_profile()
                 else:
-                    print("Enter 1-6, or q to exit.")
+                    print("Enter 1-8, or q to exit.")
             except (ConfigError, OSError, RuntimeError, ValueError) as exc:
                 print("\nAction could not be completed: {}\n".format(exc))
 
@@ -83,7 +88,8 @@ class TerminalDashboard:
                 )
         print(
             "\n1 Create project  2 View project  3 New suggestion  "
-            "4 Continue chat\n5 Run build/revision  6 Stop preview  q Exit\n"
+            "4 Continue chat\n5 Run build/revision  6 Stop preview  "
+            "7 Import profile  8 Export profile  q Exit\n"
         )
 
     def _select_project(self) -> ProjectRecord:
@@ -179,6 +185,13 @@ class TerminalDashboard:
         )
         print("Goal: {}".format(project.latest_goal))
         print(
+            "Execution profile: {}".format(
+                "configured"
+                if self.store.has_execution_profile(project.id)
+                else "missing"
+            )
+        )
+        print(
             "\nSuggested next actions: create a focused chat, add feedback to an "
             "existing chat, run a revision with its chat ID, or stop an active preview."
         )
@@ -238,15 +251,8 @@ class TerminalDashboard:
             )
 
     def _run_revision(self) -> None:
-        config_path = input("Pipeline JSON configuration path: ").strip()
-        config = load_config(config_path)
-        if config.workspace.database_path != self.store.database_path:
-            raise ValueError(
-                "This dashboard uses {} but the configuration uses {}. Start the "
-                "dashboard with --database for the same store.".format(
-                    self.store.database_path, config.workspace.database_path
-                )
-            )
+        project = self._select_project()
+        config, _ = config_for_project(self.store, project.id)
         chat_id = input("Chat ID (blank for a first build): ").strip() or None
         wants_preview = input(
             "Start the configured local preview after tests? [y/N]: "
@@ -257,6 +263,22 @@ class TerminalDashboard:
         print(json_result(result.to_dict()))
         if result.state.value == "review_waiting":
             print("Review is waiting. Add a suggestion or feedback in a separate chat.")
+
+    def _import_profile(self) -> None:
+        path = input("JSON profile to import: ").strip()
+        _, project = import_profile(path, self.store.database_path)
+        print(
+            "Imported execution profile for {} ({}). JSON can now be archived or used "
+            "only as an export/import backup.\n".format(project.name, project.id[:8])
+        )
+
+    def _export_profile(self) -> None:
+        project = self._select_project()
+        output = input(
+            "Output path (blank for the standard project-ID filename): "
+        ).strip()
+        destination = export_profile(self.store, project.id, output)
+        print("Exported {}.\n".format(destination))
 
     def _stop_preview(self) -> None:
         project = self._select_project()
