@@ -66,8 +66,6 @@
     "command": [],
     "health_check_commands": [],
     "health_check_url": "",
-    "port_start": 4300,
-    "port_end": 4399,
     "startup_timeout_seconds": 20
   }
 }

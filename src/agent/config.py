@@ -126,6 +126,7 @@ class PreviewConfig:
     command: List[str] = field(default_factory=list)
     health_check_commands: List[List[str]] = field(default_factory=list)
     health_check_url: str = ""
+    # Legacy import-only fields. SQLite server settings own the enforced pool.
     port_start: int = 4300
     port_end: int = 4399
     startup_timeout_seconds: int = 20

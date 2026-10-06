@@ -64,8 +64,6 @@ def execution_profile(config: HarnessConfig) -> Dict[str, Any]:
             "command": config.preview.command,
             "health_check_commands": config.preview.health_check_commands,
             "health_check_url": config.preview.health_check_url,
-            "port_start": config.preview.port_start,
-            "port_end": config.preview.port_end,
             "startup_timeout_seconds": config.preview.startup_timeout_seconds,
         },
     }

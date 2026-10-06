@@ -32,7 +32,11 @@ Install the harness and then open the dashboard with no arguments:
 super-agent
 ```
 
-The keyboard-driven dashboard lets you create a project, choose its primary
+On first launch, the keyboard-driven dashboard asks you to configure the one
+global localhost preview-port pool the harness may use. The range must contain
+at least five ports. Later, use **9 Settings** to view its live inventory and
+event history or change the range (after stopping previews outside the new
+range). The dashboard also lets you create a project, choose its primary
 language (`Go`, `C`, `C++`, `Rust`, `TypeScript`, `Python`, or `Java`), enter a
 goal, GitHub clone URL, Mermaid design, and acceptance criteria. It also lists
 projects, revision chats, local previews, leased ports, and recent revisions.
@@ -83,7 +87,8 @@ by Git. It stores:
 - run/revision state and local commit SHA;
 - model prompts, JSON schemas, and structured outputs;
 - focused revision chats and their messages;
-- port leases and preview process records; and
+- the global preview-port policy, port availability inventory, taken/freed
+  event history, port leases, and preview process records; and
 - configured deployment command results.
 
 `memory.json` remains a durable per-run transcript passed from planner to coder
@@ -106,10 +111,13 @@ summary plus the most recent sixteen messages become the next revision context.
 ## Local preview and port safety
 
 Preview deployment is intentionally explicit. Configure `preview.enabled: true`
-and one argv `preview.command` containing `{port}`. The harness checks its SQLite
-lease table and probes the loopback socket, leases a free port in the configured
-range, starts the command with `SUPER_AGENT_PORT`, waits for that port to open,
-then runs optional URL and argv health checks.
+and one argv `preview.command` containing `{port}`. During first-run onboarding,
+the server owner selects the global preview range; project profiles cannot widen
+or replace it. The harness probes every port in that pool, persists its latest
+`available`, `occupied`, or `leased` state, and appends an event whenever an
+observed port becomes taken or free. It then leases a free port, starts the
+command with `SUPER_AGENT_PORT`, waits for that port to open, and runs optional
+URL and argv health checks.
 
 For example, a Python project can use:
 
@@ -117,11 +125,13 @@ For example, a Python project can use:
 "preview": {
   "enabled": true,
   "command": ["python", "-m", "http.server", "{port}"],
-  "health_check_url": "http://127.0.0.1:{port}/",
-  "port_start": 4300,
-  "port_end": 4399
+  "health_check_url": "http://127.0.0.1:{port}/"
 }
 ```
+
+Older imported profiles may still contain `port_start` and `port_end`; they are
+accepted for compatibility but ignored. Change the global pool from dashboard
+**Settings**, not in an individual project profile.
 
 Run it with `super-agent run PROJECT-ID --preview`. The result includes
 the local preview URL and enters `review_waiting`. Review it, create a focused

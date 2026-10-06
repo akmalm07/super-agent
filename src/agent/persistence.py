@@ -163,6 +163,52 @@ class PortLeaseRecord(Base):
     )
 
 
+class ServerSettingsRecord(Base):
+    """Singleton settings owned by the person operating this harness server."""
+
+    __tablename__ = "server_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    preview_port_start: Mapped[int] = mapped_column(Integer)
+    preview_port_end: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PortInventoryRecord(Base):
+    """Latest observed state of one port in the globally managed preview pool."""
+
+    __tablename__ = "port_inventory"
+
+    port: Mapped[int] = mapped_column(Integer, primary_key=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    project_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("projects.id"), nullable=True, index=True
+    )
+    lease_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("port_leases.id"), nullable=True
+    )
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PortEventRecord(Base):
+    """Append-only audit trail for a managed port becoming taken or free."""
+
+    __tablename__ = "port_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    port: Mapped[int] = mapped_column(Integer, index=True)
+    action: Mapped[str] = mapped_column(String(32), index=True)
+    source: Mapped[str] = mapped_column(String(32))
+    project_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("projects.id"), nullable=True, index=True
+    )
+    lease_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("port_leases.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class PreviewRecord(Base):
     __tablename__ = "previews"
 
@@ -235,6 +281,174 @@ class SQLiteStore:
                                 )
                             )
                         )
+
+    @staticmethod
+    def _validate_port_range(port_start: int, port_end: int) -> None:
+        if not 1 <= port_start <= port_end <= 65535:
+            raise ValueError("Port range must be between 1 and 65535.")
+        if port_end - port_start + 1 < 5:
+            raise ValueError(
+                "The global preview pool must contain at least five ports."
+            )
+
+    def get_port_policy(self) -> Optional[ServerSettingsRecord]:
+        with self.session_factory() as session:
+            return session.get(ServerSettingsRecord, 1)
+
+    def require_port_policy(self) -> ServerSettingsRecord:
+        policy = self.get_port_policy()
+        if policy is None:
+            raise RuntimeError(
+                "No global preview port range is configured. Open `super-agent` "
+                "and complete port-pool onboarding first."
+            )
+        return policy
+
+    def configure_port_policy(
+        self, port_start: int, port_end: int
+    ) -> ServerSettingsRecord:
+        """Persist the only range the harness may use for preview processes."""
+        self._validate_port_range(port_start, port_end)
+        with self.session_factory.begin() as session:
+            active_outside_range = (
+                session.query(PortLeaseRecord)
+                .filter_by(status="active")
+                .filter(
+                    (PortLeaseRecord.port < port_start)
+                    | (PortLeaseRecord.port > port_end)
+                )
+                .order_by(PortLeaseRecord.port.asc())
+                .all()
+            )
+            if active_outside_range:
+                raise ValueError(
+                    "Stop previews using ports {} before changing the global range.".format(
+                        ", ".join(str(lease.port) for lease in active_outside_range)
+                    )
+                )
+            policy = session.get(ServerSettingsRecord, 1)
+            now = utc_now()
+            if policy is None:
+                policy = ServerSettingsRecord(
+                    id=1,
+                    preview_port_start=port_start,
+                    preview_port_end=port_end,
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(policy)
+            else:
+                policy.preview_port_start = port_start
+                policy.preview_port_end = port_end
+                policy.updated_at = now
+        self.refresh_port_inventory()
+        return self.require_port_policy()
+
+    @staticmethod
+    def _event_for_transition(previous: Optional[str], current: str) -> str:
+        if current == "leased":
+            return "leased"
+        if current == "available" and previous == "occupied":
+            return "observed_freed"
+        if current == "occupied":
+            return "observed_taken"
+        return "observed_{}".format(current)
+
+    @staticmethod
+    def _set_inventory_status(
+        session: Any,
+        port: int,
+        status: str,
+        source: str,
+        project_id: Optional[str] = None,
+        lease_id: Optional[str] = None,
+        action: Optional[str] = None,
+    ) -> None:
+        record = session.get(PortInventoryRecord, port)
+        previous = record.status if record is not None else None
+        changed = (
+            record is None
+            or record.status != status
+            or record.project_id != project_id
+            or record.lease_id != lease_id
+        )
+        if record is None:
+            record = PortInventoryRecord(
+                port=port,
+                status=status,
+                project_id=project_id,
+                lease_id=lease_id,
+                observed_at=utc_now(),
+            )
+            session.add(record)
+        else:
+            record.status = status
+            record.project_id = project_id
+            record.lease_id = lease_id
+            record.observed_at = utc_now()
+        if changed or action:
+            session.add(
+                PortEventRecord(
+                    port=port,
+                    action=action
+                    or SQLiteStore._event_for_transition(previous, status),
+                    source=source,
+                    project_id=project_id,
+                    lease_id=lease_id,
+                    created_at=utc_now(),
+                )
+            )
+
+    def refresh_port_inventory(self) -> List[PortInventoryRecord]:
+        """Probe the configured pool and persist every observed state transition."""
+        policy = self.require_port_policy()
+        self.reconcile_port_leases()
+        with self.session_factory.begin() as session:
+            active_leases = {
+                lease.port: lease
+                for lease in session.query(PortLeaseRecord)
+                .filter_by(status="active")
+                .all()
+            }
+            for port in range(policy.preview_port_start, policy.preview_port_end + 1):
+                lease = active_leases.get(port)
+                if lease is not None:
+                    self._set_inventory_status(
+                        session,
+                        port,
+                        "leased",
+                        "harness",
+                        lease.project_id,
+                        lease.id,
+                    )
+                else:
+                    self._set_inventory_status(
+                        session,
+                        port,
+                        "available" if self._is_port_available(port) else "occupied",
+                        "system_probe",
+                    )
+        return self.list_port_inventory(refresh=False)
+
+    def list_port_inventory(self, refresh: bool = True) -> List[PortInventoryRecord]:
+        if refresh:
+            self.refresh_port_inventory()
+        policy = self.require_port_policy()
+        with self.session_factory() as session:
+            return (
+                session.query(PortInventoryRecord)
+                .filter(PortInventoryRecord.port >= policy.preview_port_start)
+                .filter(PortInventoryRecord.port <= policy.preview_port_end)
+                .order_by(PortInventoryRecord.port.asc())
+                .all()
+            )
+
+    def list_port_events(self, port: Optional[int] = None) -> List[PortEventRecord]:
+        with self.session_factory() as session:
+            query = session.query(PortEventRecord)
+            if port is not None:
+                query = query.filter_by(port=port)
+            return query.order_by(PortEventRecord.id.asc()).all()
 
     @staticmethod
     def _project_name(request: PipelineRequest) -> str:
@@ -638,11 +852,22 @@ class SQLiteStore:
         return True
 
     def acquire_port(
-        self, project_id: str, purpose: str, port_start: int, port_end: int
+        self,
+        project_id: str,
+        purpose: str,
+        port_start: Optional[int] = None,
+        port_end: Optional[int] = None,
     ) -> PortLeaseRecord:
+        """Lease one port from the global pool.
+
+        ``port_start`` and ``port_end`` remain accepted only for compatibility with
+        older callers and saved profiles. They intentionally do not override the
+        server owner's persisted global policy.
+        """
         if self.get_project(project_id) is None:
             raise ValueError("Unknown project: {}".format(project_id))
-        self.reconcile_port_leases()
+        policy = self.require_port_policy()
+        self.refresh_port_inventory()
         with self.session_factory() as session:
             leased = {
                 row.port
@@ -650,26 +875,65 @@ class SQLiteStore:
                 .filter_by(status="active")
                 .all()
             }
-        for port in range(port_start, port_end + 1):
-            if port in leased or not self._is_port_available(port):
+            available = {
+                row.port
+                for row in session.query(PortInventoryRecord)
+                .filter_by(status="available")
+                .all()
+            }
+        for port in range(policy.preview_port_start, policy.preview_port_end + 1):
+            if (
+                port in leased
+                or port not in available
+                or not self._is_port_available(port)
+            ):
                 continue
-            lease = PortLeaseRecord(
-                id=str(uuid4()),
-                project_id=project_id,
-                port=port,
-                purpose=purpose,
-                status="active",
-                created_at=utc_now(),
-            )
             try:
                 with self.session_factory.begin() as session:
-                    session.add(lease)
-                return lease
+                    # ``port`` was unique in the original MVP schema. Reusing its
+                    # row preserves compatibility; the append-only port event log
+                    # retains the complete taken/freed history.
+                    lease = (
+                        session.query(PortLeaseRecord)
+                        .filter_by(port=port)
+                        .one_or_none()
+                    )
+                    if lease is None:
+                        lease = PortLeaseRecord(
+                            id=str(uuid4()),
+                            project_id=project_id,
+                            port=port,
+                            purpose=purpose,
+                            status="active",
+                            created_at=utc_now(),
+                        )
+                        session.add(lease)
+                    else:
+                        lease.project_id = project_id
+                        lease.purpose = purpose
+                        lease.status = "active"
+                        lease.process_id = None
+                        lease.created_at = utc_now()
+                        lease.released_at = None
+                    self._set_inventory_status(
+                        session,
+                        port,
+                        "leased",
+                        "harness",
+                        project_id,
+                        lease.id,
+                        action="leased",
+                    )
+                    lease_id = lease.id
+                with self.session_factory() as session:
+                    return session.get(PortLeaseRecord, lease_id)
             except Exception:
                 # A concurrent local harness may have leased the same port.
                 continue
         raise RuntimeError(
-            "No available port in configured range {}-{}.".format(port_start, port_end)
+            "No available port in the global configured range {}-{}.".format(
+                policy.preview_port_start, policy.preview_port_end
+            )
         )
 
     def reconcile_port_leases(self) -> None:
@@ -684,6 +948,16 @@ class SQLiteStore:
                 except (OSError, ProcessLookupError):
                     lease.status = "released"
                     lease.released_at = utc_now()
+                    session.add(
+                        PortEventRecord(
+                            port=lease.port,
+                            action="released",
+                            source="process_reconcile",
+                            project_id=lease.project_id,
+                            lease_id=lease.id,
+                            created_at=utc_now(),
+                        )
+                    )
 
     def set_port_process(self, lease_id: str, process_id: int) -> None:
         with self.session_factory.begin() as session:
@@ -699,6 +973,13 @@ class SQLiteStore:
                 raise ValueError("Unknown port lease: {}".format(lease_id))
             lease.status = "released"
             lease.released_at = utc_now()
+            self._set_inventory_status(
+                session,
+                lease.port,
+                "available" if self._is_port_available(lease.port) else "occupied",
+                "harness",
+                action="released",
+            )
 
     def list_port_leases(
         self, project_id: Optional[str] = None
@@ -746,13 +1027,12 @@ class SQLiteStore:
             )
 
     def stop_preview(self, preview_id: str) -> None:
+        lease_id = ""
         with self.session_factory.begin() as session:
             preview = session.get(PreviewRecord, preview_id)
             if preview is None:
                 raise ValueError("Unknown preview: {}".format(preview_id))
             preview.state = "stopped"
             preview.stopped_at = utc_now()
-            lease = session.get(PortLeaseRecord, preview.port_lease_id)
-            if lease is not None:
-                lease.status = "released"
-                lease.released_at = utc_now()
+            lease_id = preview.port_lease_id
+        self.release_port(lease_id)

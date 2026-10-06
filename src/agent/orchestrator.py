@@ -363,12 +363,10 @@ class PipelineOrchestrator:
     ) -> None:
         if not self.config.preview.enabled:
             raise ValueError("Preview requires preview.enabled=true in configuration.")
-        lease = store.acquire_port(
-            project_id,
-            "preview",
-            self.config.preview.port_start,
-            self.config.preview.port_end,
-        )
+        # The server owner chooses the port pool during dashboard onboarding.
+        # Per-project profile ranges are retained only for legacy import support
+        # and must never expand what a project can bind.
+        lease = store.acquire_port(project_id, "preview")
         try:
             launch = LocalPreviewDeployer(
                 repository.path, self.config.preview, lease.port

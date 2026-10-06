@@ -31,6 +31,7 @@ class TerminalDashboard:
         self.store = SQLiteStore(database_path)
 
     def run(self) -> int:
+        self._complete_port_pool_onboarding()
         while True:
             self._show_home()
             choice = input("Choose an action: ").strip().lower()
@@ -54,8 +55,10 @@ class TerminalDashboard:
                     self._import_profile()
                 elif choice == "8":
                     self._export_profile()
+                elif choice == "9":
+                    self._settings()
                 else:
-                    print("Enter 1-8, or q to exit.")
+                    print("Enter 1-9, or q to exit.")
             except (ConfigError, OSError, RuntimeError, ValueError) as exc:
                 print("\nAction could not be completed: {}\n".format(exc))
 
@@ -64,6 +67,21 @@ class TerminalDashboard:
         print("\n" + "=" * 72)
         print("SUPER-AGENT  |  Local Project Control Plane")
         print("Database: {}".format(self.store.database_path))
+        policy = self.store.require_port_policy()
+        inventory = self.store.list_port_inventory()
+        counts = {
+            status: sum(1 for item in inventory if item.status == status)
+            for status in ("available", "leased", "occupied")
+        }
+        print(
+            "Preview pool: {}-{}  |  {} available, {} leased, {} occupied".format(
+                policy.preview_port_start,
+                policy.preview_port_end,
+                counts["available"],
+                counts["leased"],
+                counts["occupied"],
+            )
+        )
         print("=" * 72)
         if not projects:
             print("No projects yet. Start with ‘Create a project’.\n")
@@ -89,8 +107,78 @@ class TerminalDashboard:
         print(
             "\n1 Create project  2 View project  3 New suggestion  "
             "4 Continue chat\n5 Run build/revision  6 Stop preview  "
-            "7 Import profile  8 Export profile  q Exit\n"
+            "7 Import profile  8 Export profile  9 Settings  q Exit\n"
         )
+
+    def _complete_port_pool_onboarding(self) -> None:
+        if self.store.get_port_policy() is not None:
+            return
+        print("\nPreview port-pool onboarding")
+        print(
+            "Choose the localhost ports this harness may use for previews. "
+            "The range must contain at least five ports; project profiles cannot "
+            "override it."
+        )
+        self._configure_port_pool()
+
+    @staticmethod
+    def _ask_port_range() -> tuple:
+        start = input("First preview port [4300]: ").strip() or "4300"
+        end = input("Last preview port [4399]: ").strip() or "4399"
+        try:
+            return int(start), int(end)
+        except ValueError as exc:
+            raise ValueError("Enter whole-number port values.") from exc
+
+    def _configure_port_pool(self) -> None:
+        while True:
+            try:
+                port_start, port_end = self._ask_port_range()
+                self.store.configure_port_policy(port_start, port_end)
+                print("Saved global preview pool {}-{}.\n".format(port_start, port_end))
+                return
+            except ValueError as exc:
+                print("Port range was not saved: {}".format(exc))
+
+    def _settings(self) -> None:
+        policy = self.store.require_port_policy()
+        inventory = self.store.list_port_inventory()
+        print("\nSettings")
+        print(
+            "Global preview port pool: {}-{} ({} ports)".format(
+                policy.preview_port_start,
+                policy.preview_port_end,
+                policy.preview_port_end - policy.preview_port_start + 1,
+            )
+        )
+        print("Port inventory")
+        for item in inventory:
+            owner = ""
+            if item.status == "leased":
+                owner = "  project {}".format((item.project_id or "")[:8])
+            print("  {:5}  {:9}{}".format(item.port, item.status, owner))
+        print("\n1 Change global preview port pool  2 View port event history  b Back")
+        choice = input("Choose a setting: ").strip().lower()
+        if choice == "1":
+            self._configure_port_pool()
+        elif choice == "2":
+            events = self.store.list_port_events()
+            if not events:
+                print("No port events have been recorded yet.\n")
+                return
+            print("\nPort event history")
+            for event in events[-40:]:
+                print(
+                    "  {}  {:5}  {:18}  {}".format(
+                        event.created_at.isoformat(),
+                        event.port,
+                        event.action,
+                        event.source,
+                    )
+                )
+            print()
+        elif choice not in {"b", "back", ""}:
+            raise ValueError("Choose 1, 2, or b.")
 
     def _select_project(self) -> ProjectRecord:
         token = input("Project ID (first 8 characters are enough): ").strip()

@@ -92,13 +92,51 @@ def test_port_leases_skip_busy_ports_and_can_be_released(tmp_path):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as busy_socket:
         busy_socket.bind(("127.0.0.1", 0))
         busy_port = busy_socket.getsockname()[1]
-        with pytest.raises(RuntimeError, match="No available port"):
-            store.acquire_port(project.id, "preview", busy_port, busy_port)
+        store.configure_port_policy(busy_port, busy_port + 4)
+        lease = store.acquire_port(project.id, "preview", busy_port, busy_port)
+        assert lease.port != busy_port
+        store.release_port(lease.id)
 
     lease = store.acquire_port(project.id, "preview", busy_port, busy_port)
     assert lease.port == busy_port
     store.release_port(lease.id)
     assert store.list_port_leases(project.id) == []
+
+
+def test_global_port_policy_requires_five_ports_and_records_port_history(tmp_path):
+    request = PipelineRequest(
+        goal="Use a globally controlled preview port pool.",
+        source_repository="https://github.com/example/global-ports.git",
+        architecture_mermaid="flowchart LR\nHarness --> Preview",
+        acceptance_criteria=["Only globally allowed ports are leased."],
+    )
+    store = SQLiteStore(tmp_path / "harness.sqlite3")
+    project = store.get_or_create_project(request)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        start = probe.getsockname()[1]
+
+    with pytest.raises(ValueError, match="at least five"):
+        store.configure_port_policy(start, start + 3)
+
+    store.configure_port_policy(start, start + 4)
+    lease = store.acquire_port(project.id, "preview", start + 100, start + 200)
+    assert start <= lease.port <= start + 4
+    assert {item.status for item in store.list_port_inventory()} <= {
+        "available",
+        "leased",
+        "occupied",
+    }
+    assert any(
+        event.port == lease.port and event.action == "leased"
+        for event in store.list_port_events(lease.port)
+    )
+
+    store.release_port(lease.id)
+    assert any(
+        event.port == lease.port and event.action == "released"
+        for event in store.list_port_events(lease.port)
+    )
 
 
 def test_existing_first_mvp_database_is_migrated_for_project_control(tmp_path):
