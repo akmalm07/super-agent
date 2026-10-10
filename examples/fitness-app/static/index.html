@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f8f5">
+  <title>Stride — Fitness Journal</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Stride home"><span class="brand-mark" aria-hidden="true">↗</span><span>stride<span class="brand-dot">.</span></span></a>
+      <span class="header-note"><span class="status-dot" aria-hidden="true"></span> Your private training journal</span>
+    </header>
+
+    <main>
+      <section class="intro" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">YOUR FITNESS, IN FOCUS</p>
+          <h1 id="page-title">Keep showing up<span class="accent">.</span></h1>
+          <p class="intro-copy">Every rep counts. Record your sessions, follow your rhythm, and see the week take shape.</p>
+        </div>
+        <div class="week-badge" aria-live="polite"><span>THIS WEEK</span><strong id="week-range">—</strong></div>
+      </section>
+
+      <section class="overview" aria-labelledby="overview-title">
+        <div class="section-heading"><div><p class="eyebrow">THE BIG PICTURE</p><h2 id="overview-title">Weekly overview</h2></div><span id="week-label" class="muted">Monday to Sunday</span></div>
+        <div class="stat-grid">
+          <article class="stat-card highlight"><span class="stat-icon" aria-hidden="true">◆</span><span class="stat-label">WORKOUTS</span><strong id="stat-workouts">0</strong><span class="stat-foot">sessions completed</span></article>
+          <article class="stat-card"><span class="stat-icon" aria-hidden="true">◷</span><span class="stat-label">TIME TRAINED</span><strong><span id="stat-minutes">0</span><small>min</small></strong><span class="stat-foot">time invested</span></article>
+          <article class="stat-card"><span class="stat-icon" aria-hidden="true">▥</span><span class="stat-label">TOTAL SETS</span><strong id="stat-sets">0</strong><span class="stat-foot">sets completed</span></article>
+          <article class="stat-card"><span class="stat-icon" aria-hidden="true">↗</span><span class="stat-label">TOTAL REPS</span><strong id="stat-reps">0</strong><span class="stat-foot">reps in the books</span></article>
+        </div>
+        <div class="activity-card">
+          <div><h3>Daily activity</h3><p>Minutes trained each day this week</p></div>
+          <div id="activity-chart" class="activity-chart" role="img" aria-label="Daily training minutes"></div>
+        </div>
+      </section>
+
+      <div class="content-grid">
+        <section class="panel log-panel" aria-labelledby="log-title">
+          <div class="panel-heading"><span class="panel-symbol" aria-hidden="true">＋</span><div><p class="eyebrow">MAKE IT COUNT</p><h2 id="log-title">Log a workout</h2></div></div>
+          <p class="panel-copy">Capture the work you put in today.</p>
+          <form id="workout-form">
+            <div class="form-row">
+              <label>Workout date<input id="workout-date" type="date" required></label>
+              <label>Duration <span class="label-hint">minutes</span><input id="duration" type="number" min="1" max="1440" placeholder="e.g. 45" required></label>
+            </div>
+            <div class="exercise-heading"><h3>Exercises</h3><span>SETS × REPS</span></div>
+            <div id="exercise-list" class="exercise-list"></div>
+            <button id="add-exercise" type="button" class="add-button"><span aria-hidden="true">＋</span> Add another exercise</button>
+            <p id="form-message" class="form-message" role="status" aria-live="polite"></p>
+            <button id="save-button" class="primary-button" type="submit">Save workout <span aria-hidden="true">→</span></button>
+          </form>
+        </section>
+
+        <section class="panel recent-panel" aria-labelledby="recent-title">
+          <div class="panel-heading recent-heading"><div><p class="eyebrow">YOUR JOURNEY</p><h2 id="recent-title">Recent workouts</h2></div><span id="recent-count" class="count-pill">0 logged</span></div>
+          <div id="workout-list" class="workout-list" aria-live="polite"></div>
+        </section>
+      </div>
+    </main>
+    <footer>Built for the long game. One workout at a time.</footer>
+  </div>
+</body>
+</html>
