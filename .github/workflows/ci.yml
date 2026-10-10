@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Lint
+        run: python -m ruff check src tests
+      - name: Test
+        run: python -m pytest -q -p no:cacheprovider
+      - name: Verify generated fitness app
+        run: python -c "from pathlib import Path; from agent.project import verify_project; verify_project(Path('examples/fitness-app').resolve())"
+      - name: CLI smoke test
+        run: python -m agent.cli --help

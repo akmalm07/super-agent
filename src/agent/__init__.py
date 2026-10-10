@@ -1,7 +1,3 @@
-"""A user-controlled, multi-stage software delivery harness."""
+"""Personal app builder and private-server deployment helpers."""
 
-from .config import HarnessConfig, load_config
-from .orchestrator import PipelineOrchestrator
-from .task import PipelineRequest
-
-__all__ = ["HarnessConfig", "PipelineOrchestrator", "PipelineRequest", "load_config"]
+__version__ = "0.2.0"
